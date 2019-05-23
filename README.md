@@ -1,7 +1,7 @@
 # json-streaming-parser
 
 ## background
-json_sax.js is an event-driven parser modified from jsonparse.js (https://github.com/creationix/jsonparse) as follows:
+json_sax.js is an event-driven parser modified from jsonparse.js (https://github.com/creationix/jsonparse and https://gist.github.com/creationix/1821394) as follows:
   - add built-in stack control
   - add 'capture' capability enabling portions of input JSON to be captured and processed in traditional style
   - future: add option to capture function to limit memory usage per captured object
