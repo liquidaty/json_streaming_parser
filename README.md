@@ -1,10 +1,10 @@
 # json-streaming-parser
 
 ## background
-json_sax.js is an event-driven parser modified from jsonparse.js (https://github.com/creationix/jsonparse and https://gist.github.com/creationix/1821394) as follows:
-  - add built-in stack control
-  - add 'capture' capability enabling portions of input JSON to be captured and processed in traditional style
-  - future: add option to capture function to limit memory usage per captured object
+json_sax.js is a streaming, event-driven parser modified from jsonparse.js (https://github.com/creationix/jsonparse and https://gist.github.com/creationix/1821394). Event-driven parsers are generally high-performance, at the cost of code complexity. This library attempts to alleviate the latter issue by including higher-level convenience features such as:
+  - built-in stack tracking / control
+  - 'capture' capability enabling portions / components of the input JSON to be iteratively captured and processed in traditional style
+  - future: add option to capture function to set a memory usage ceiling per captured object
   - future: add 'path' function to check the current JSON object path
 
 The name 'json_sax.js' might later change, as it is somewhat of a misnomer since the term "sax" originally was mean for XML
@@ -63,7 +63,7 @@ To build the test examples, run:
 
 This will generate JSON data files in sizes of 1k, 10k, 100k and 1mm, compress with bz2 and save in the data folder.
 
-### Running the tests
+### running the tests
 To view the test commands, without running them:
    DRY=1 ./parsetest.sh
 
@@ -73,7 +73,7 @@ To run the tests and save to results.csv:
 To run with a different number of trials:
    TRIALS=3 ./parsetest.sh
 
-### Generating data
+### generating data
 Running ```make``` will generate test data, but if you'd like to to 
 generate your own, you can use the data/generate executable.
 
