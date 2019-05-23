@@ -21,7 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ---
-This code was modified from json_parse.js at https://github.com/creationix/jsonparse, which has the following license:
+This code incorporates code from and/or derived from json_parse.js at https://github.com/creationix/jsonparse, which has the following license:
 ---
 The MIT License
 
