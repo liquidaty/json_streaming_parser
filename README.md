@@ -41,6 +41,10 @@ json_sax|100000|7.122|4.802
 JSON.parse|1000000|10.624|360.52
 json_sax|1000000|6.852|4.35
 
+<img src="https://github.com/liquidaty/json_streaming_parser/blob/master/speed.png" width="500">
+<img src="https://github.com/liquidaty/json_streaming_parser/blob/master/memory.png" width="500">
+
+
 
 # installation
 ## prerequisites
