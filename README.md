@@ -30,16 +30,16 @@ The included tests generate rows of data, each row consisting of 15 random integ
 parser and using JSON.parse with Node running the js tests. Time and memory requirements are compared on datasets consisting of 1k, 10k, 100k, and 1mm rows.
 On a 2015 Macbook Air, 
 
-method|rows|avg time|avg mem
+method|rows|avg time per 1k rows|avg mem
  --- | --- | --- | ---
 JSON.parse|1000|6.4|4.38
 json_sax|1000|41.8|4.4
-JSON.parse|10000|83.8|8.11
-json_sax|10000|83.2|4.43
-JSON.parse|100000|1072.4|41.12
-json_sax|100000|712.2|4.802
-JSON.parse|1000000|10624|360.52
-json_sax|1000000|6852|4.35
+JSON.parse|10000|8.38|8.11
+json_sax|10000|8.32|4.43
+JSON.parse|100000|10.724|41.12
+json_sax|100000|7.122|4.802
+JSON.parse|1000000|10.624|360.52
+json_sax|1000000|6.852|4.35
 
 
 # installation
