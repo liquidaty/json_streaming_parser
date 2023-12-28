@@ -56,6 +56,7 @@ declare var exports;
   }
 
   function SaxParser(origCallbacks, options?:SaxParserOptions) {
+    this.decoder = new TextDecoder('utf-8');
     this.stack = [];
     this.path = [];
     this.bytes_read = 0;
@@ -142,7 +143,6 @@ declare var exports;
 
     // for string parsing
     this.string = undefined; // string data
-    this.unicode = undefined; // unicode escapes
 
     // For number parsing
     this.negative = undefined;
@@ -151,9 +151,9 @@ declare var exports;
     this.exponent = undefined;
     this.negativeExponent = undefined;
 
-    this.unexpected = function() {
-      let s = String.fromCharCode(this.state);
-      that.callbacks.onError(new Error("Unexpected '" + s + "' at position " + this.bytes_read + " in state " + toknam(this.state)));
+    this.unexpected = function(e?) {
+      let s = e ? e.toString() : String.fromCharCode(that.state);
+      that.callbacks.onError(new Error("Unexpected '" + s + "' at position " + that.bytes_read + " in state " + toknam(that.state)));
       that.parse_err = true;
     };
 
@@ -189,7 +189,7 @@ declare var exports;
       if(this.capture_stack.length)
         this.capture_push(v);
       else
-        callback(v); // this.capture_callback(v);
+        callback(v);
     };
   };
 
@@ -202,437 +202,450 @@ declare var exports;
   };
 
   proto.charError = function (buffer, i) {
+    this.parse_err = true;
     this.callbacks.onError(new Error("Unexpected " + JSON.stringify(String.fromCharCode(buffer[i])) + " at position " + i + " in state " + toknam(this.state)));
   };
 
   function str_to_bytearray(str) {
-    let utf8 = unescape(encodeURIComponent(str));
-    let arr = [];
-    for(let i = 0; i < utf8.length; i++)
-      arr.push(utf8.charCodeAt(i));
-    return arr;
+    const encoder = new TextEncoder();
+    return encoder.encode(str);
   }
-
-//  let Buffer = str_to_bytearray; // this.Buffer || str_to_bytearray;
 
   proto.parse = function (buffer) {
     if (typeof buffer === "string")
-      //      buffer = new Buffer(buffer);
       buffer = str_to_bytearray(buffer);
     let n;
     for(let i = 0, l = buffer.length; i < l && !this.parse_err && !this.jsonPathAtPositionResult;
         i++, this.bytes_read++) {
       switch (this.state) {
-      case C.START:
-        n = buffer[i];
-        switch (n) {
-        case 0x7b: // `{`
-          this.last_start = i+1;
-          if(this.validate) {
-            if(this.ready_for != 'v')
-              this.unexpected();
-            else {
-              this.stack_push('{');
-              this.ready_for = 'k';
-            }
-          }
-          if(this.capture)
-            this.capture_stack[this.capture_stack.length] = {};
-          else if(this.callbacks.onStartObject() === false)
-            break;
-          continue;
-        case 0x7d: // `}`
-          if(this.validate && this.stack_pop() != '{')
-            this.unexpected();
-          if(this.capture) {
-            if(this.capture_stack.length == 0)
-              this.unsetCapture();
-            else
-              this.capture(this.capture_stack.pop());
-          }
-
-          if(!this.capture && this.callbacks.onEndObject() === false)
-            break;
-          continue;
-        case 0x5b: // `[`
-          this.last_start = i+1;
-          if(this.validate) {
-            if(this.ready_for != 'v')
-              this.unexpected();
-            else
-              this.stack_push('[');
-          }
-          if(this.capture)
-            this.capture_stack[this.capture_stack.length] = [];
-          else if(this.callbacks.onStartArray() === false)
-            break;
-          continue;
-        case 0x5d: // `]`
-          if(this.validate && this.stack_pop() != '[')
-            this.unexpected();
-          if(this.capture) {
-            if(this.capture_stack.length == 0 )
-              this.unsetCapture();
-            else
-              this.capture(this.capture_stack.pop());
-          }
-
-          if(!this.capture && this.callbacks.onEndArray() === false)
-            break;
-          continue;
-        case 0x3a: // `:`
-          this.last_start = i+1;
-          if(this.validate) {
-            if(this.ready_for == ':') {
-              this.ready_for = 'v';
+        case C.START:
+          n = buffer[i];
+          switch (n) {
+            case 0x7b: // `{`
+              this.last_start = i+1;
+              if(this.validate) {
+                if(this.ready_for != 'v')
+                  this.unexpected();
+                else {
+                  this.stack_push('{');
+                  this.ready_for = 'k';
+                }
+              }
               if(this.capture)
-                this.capture_key[this.capture_stack.length-1] = this.string;
-              else if(this.callbacks.onKey.apply(this) === false)
+                this.capture_stack[this.capture_stack.length] = {};
+              else if(this.callbacks.onStartObject() === false)
                 break;
-              this.string = undefined;
-              this.noComma = true;
-            } else
-              this.unexpected();
-          }
-          if(this.callbacks.onColon() === false)
-            break;
-          continue;
-        case 0x2c: // `,`
-          this.last_start = i+1;
-          if(this.validate) {
-            if(this.noComma)
-              this.unexpected();
-            else if(this.stack_last == '{')
-              this.ready_for = 'k';
-            else if(this.stack_last == '[')
-              this.ready_for = 'v';
-            else
-              this.unexpected();
+              continue;
+            case 0x7d: // `}`
+              if(this.validate && this.stack_pop() != '{')
+                this.unexpected();
+              if(this.capture) {
+                if(this.capture_stack.length == 0)
+                  this.unsetCapture();
+                else
+                  this.capture(this.capture_stack.pop());
+              }
 
-            this.noComma = true;
-          }
-          if(this.callbacks.onComma.apply(this) === false)
-            break;
-          continue;
-        case 0x74: // `t`
-          if(this.validate && this.ready_for != 'v')
-            this.unexpected();
-
-          this.last_start = i;
-          this.state = C.TRUE1;
-          continue;
-        case 0x66: // `f`
-          if(this.validate && this.ready_for != 'v')
-            this.unexpected();
-
-          this.last_start = i;
-          this.state = C.FALSE1;
-          continue;
-        case 0x6e: // `n`
-          this.last_start = i;
-          this.state = C.NULL1;
-          continue;
-        case 0x22: // `"`
-          this.last_start = i;
-          this.string = "";
-          this.state = C.STRING1;
-          continue;
-        case 0x2d: // `-`
-          this.last_start = i;
-          this.negative = true;
-          this.state = C.NUMBER1;
-          continue;
-        case 0x30: // `0`
-          this.last_start = i;
-          this.magnitude = 0;
-          this.state = C.NUMBER2;
-          continue;
-        }
-        if (n > 0x30 && n < 0x40) { // 1-9
-          this.last_start = i;
-          this.magnitude = n - 0x30;
-          this.state = C.NUMBER3;
-          continue;
-        }
-        if (n === 0x20 || n === 0x09 || n === 0x0a || n === 0x0d) {
-          this.last_start = i;
-          continue; // whitespace
-        }
-        this.charError(buffer, i);
-      case C.STRING1: // After open quote
-        n = buffer[i];
-        switch (n) {
-        case 0x22: // `"`
-          if(this.validate) {
-            if(this.ready_for == 'v') {
-            } else if(this.ready_for == 'k')
-              this.ready_for = ':';
-            else
-              this.unexpected();
-
-            this.string = decodeURIComponent(escape(this.string)); // for multibyte e.g. ä½ å¥½
-            if(this.ready_for != ':') {
-              if(this.callbacks.onString(this.string) === false)
+              if(!this.capture && this.callbacks.onEndObject() === false)
                 break;
-              this.string = undefined;
-            }
+              continue;
+            case 0x5b: // `[`
+              this.last_start = i+1;
+              if(this.validate) {
+                if(this.ready_for != 'v')
+                  this.unexpected();
+                else
+                  this.stack_push('[');
+              }
+              if(this.capture)
+                this.capture_stack[this.capture_stack.length] = [];
+              else if(this.callbacks.onStartArray() === false)
+                break;
+              continue;
+            case 0x5d: // `]`
+              if(this.validate && this.stack_pop() != '[')
+                this.unexpected();
+              if(this.capture) {
+                if(this.capture_stack.length == 0 )
+                  this.unsetCapture();
+                else
+                  this.capture(this.capture_stack.pop());
+              }
+
+              if(!this.capture && this.callbacks.onEndArray() === false)
+                break;
+              continue;
+            case 0x3a: // `:`
+              this.last_start = i+1;
+              if(this.validate) {
+                if(this.ready_for == ':') {
+                  this.ready_for = 'v';
+                  if(this.capture)
+                    this.capture_key[this.capture_stack.length-1] = this.string;
+                  else if(this.callbacks.onKey.apply(this) === false)
+                    break;
+                  this.string = undefined;
+                  this.noComma = true;
+                } else
+                  this.unexpected();
+              }
+              if(this.callbacks.onColon() === false)
+                break;
+              continue;
+            case 0x2c: // `,`
+              this.last_start = i+1;
+              if(this.validate) {
+                if(this.noComma)
+                  this.unexpected();
+                else if(this.stack_last == '{')
+                  this.ready_for = 'k';
+                else if(this.stack_last == '[')
+                  this.ready_for = 'v';
+                else
+                  this.unexpected();
+
+                this.noComma = true;
+              }
+              if(this.callbacks.onComma.apply(this) === false)
+                break;
+              continue;
+            case 0x74: // `t`
+              if(this.validate && this.ready_for != 'v')
+                this.unexpected();
+
+              this.last_start = i;
+              this.state = C.TRUE1;
+              continue;
+            case 0x66: // `f`
+              if(this.validate && this.ready_for != 'v')
+                this.unexpected();
+
+              this.last_start = i;
+              this.state = C.FALSE1;
+              continue;
+            case 0x6e: // `n`
+              this.last_start = i;
+              this.state = C.NULL1;
+              continue;
+            case 0x22: // `"`
+              this.last_start = i;
+              this.raw_string = '';
+              this.state = C.STRING1;
+              continue;
+            case 0x2d: // `-`
+              this.last_start = i;
+              this.negative = true;
+              this.state = C.NUMBER1;
+              continue;
+            case 0x30: // `0`
+              this.last_start = i;
+              this.magnitude = 0;
+              this.state = C.NUMBER2;
+              continue;
           }
-          this.state = C.START;
-          continue;
-        case 0x5c: // `\`
-          this.state = C.STRING2;
-          continue;
-        }
-        if (n >= 0x20) {
-          this.string += String.fromCharCode(n);
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.STRING2: // After backslash
-        n = buffer[i];
-        switch (n) {
-        case 0x22: this.string += "\""; this.state = C.STRING1; continue;
-        case 0x5c: this.string += "\\"; this.state = C.STRING1; continue;
-        case 0x2f: this.string += "\/"; this.state = C.STRING1; continue;
-        case 0x62: this.string += "\b"; this.state = C.STRING1; continue;
-        case 0x66: this.string += "\f"; this.state = C.STRING1; continue;
-        case 0x6e: this.string += "\n"; this.state = C.STRING1; continue;
-        case 0x72: this.string += "\r"; this.state = C.STRING1; continue;
-        case 0x74: this.string += "\t"; this.state = C.STRING1; continue;
-        case 0x75: this.unicode = ""; this.state = C.STRING3; continue;
-        }
-        this.charError(buffer, i);
-      case C.STRING3: case C.STRING4: case C.STRING5: case C.STRING6: // unicode hex codes
-        n = buffer[i];
-        // 0-9 A-F a-f
-        if ((n >= 0x30 && n < 0x40) || (n > 0x40 && n <= 0x46) || (n > 0x60 && n <= 0x66)) {
-          this.unicode += String.fromCharCode(n);
-          if (this.state++ === C.STRING6) {
-            this.string += String.fromCharCode(parseInt(this.unicode, 16));
-            this.unicode = undefined;
-            this.state = C.STRING1;
+          if (n > 0x30 && n < 0x40) { // 1-9
+            this.last_start = i;
+            this.magnitude = n - 0x30;
+            this.state = C.NUMBER3;
+            continue;
           }
+          if (n === 0x20 || n === 0x09 || n === 0x0a || n === 0x0d) {
+            this.last_start = i;
+            continue; // whitespace
+          }
+          this.charError(buffer, i);
+        case C.STRING1: // After open quote
+          n = buffer[i];
+          switch (n) {
+            case 0x22: // `"`
+              if(this.validate) {
+                let unexpected = false;
+                if(this.ready_for == 'v') {
+                  // expected a value. OK
+                } else if(this.ready_for == 'k')
+                  this.ready_for = ':';
+                else {
+                  unexpected = true;
+                  this.unexpected();
+                }
+                if(!unexpected) {
+                  try {
+                    // add the last string chunk
+                    this.raw_string += this.decoder.decode(buffer.slice(this.last_start, i+1), { stream: true });
+                    this.raw_string += this.decoder.decode();
+                    this.string = JSON.parse(this.raw_string);
+                  } catch(e) {
+                    this.unexpected(e);
+                  }
+                  if(this.ready_for != ':') {
+                    if(this.callbacks.onString(this.string) === false)
+                      break;
+                    this.string = undefined;
+                  }
+                }
+              }
+              this.state = C.START;
+              continue;
+            case 0x5c: // `\`
+              this.state = C.STRING2;
+              continue;
+          }
+          if (n >= 0x20)
+            continue;
+          this.charError(buffer, i);
+        case C.STRING2: // After backslash
+          n = buffer[i];
+          switch (n) {
+            case 0x22: this.state = C.STRING1; continue;
+            case 0x5c: this.state = C.STRING1; continue;
+            case 0x2f: this.state = C.STRING1; continue;
+            case 0x62: this.state = C.STRING1; continue;
+            case 0x66: this.state = C.STRING1; continue;
+            case 0x6e: this.state = C.STRING1; continue;
+            case 0x72: this.state = C.STRING1; continue;
+            case 0x74: this.state = C.STRING1; continue;
+            case 0x75: this.state = C.STRING3; continue;
+          }
+          this.charError(buffer, i);
+        case C.STRING3: case C.STRING4: case C.STRING5: case C.STRING6: // unicode hex codes
+          n = buffer[i];
+          // 0-9 A-F a-f
+
+          if ((n >= 0x30 && n < 0x40) || (n > 0x40 && n <= 0x46) || (n > 0x60 && n <= 0x66)) {
+            if (this.state++ === C.STRING6)
+              this.state = C.STRING1;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NUMBER1: // after minus
+          n = buffer[i];
+          if (n === 0x30) { // `0`
+            this.magnitude = 0;
+            this.state = C.NUMBER2;
+            continue;
+          }
+          if (n > 0x30 && n < 0x40) { // `1`-`9`
+            this.magnitude = n - 0x30;
+            this.state = C.NUMBER3;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NUMBER2: // * After initial zero
+          switch (buffer[i]) {
+            case 0x2e: // .
+              this.position = 0.1; this.state = C.NUMBER4; continue;
+            case 0x65: case 0x45: // e/E
+              this.exponent = 0; this.state = C.NUMBER6; continue;
+          }
+          this.finish(i);
+          i--; // rewind to re-check this char
           continue;
-        }
-        this.charError(buffer, i);
-      case C.NUMBER1: // after minus
-        n = buffer[i];
-        if (n === 0x30) { // `0`
-          this.magnitude = 0;
-          this.state = C.NUMBER2;
+        case C.NUMBER3: // * After digit (before period)
+          n = buffer[i];
+          switch (n) {
+            case 0x2e: // .
+              this.position = 0.1; this.state = C.NUMBER4; continue;
+            case 0x65: case 0x45: // e/E
+              this.exponent = 0; this.state = C.NUMBER6; continue;
+          }
+          if (n >= 0x30 && n < 0x40) { // 0-9
+            this.magnitude = this.magnitude * 10 + (n - 0x30);
+            continue;
+          }
+          this.finish(i);
+          i--; // rewind to re-check
           continue;
-        }
-        if (n > 0x30 && n < 0x40) { // `1`-`9`
-          this.magnitude = n - 0x30;
-          this.state = C.NUMBER3;
+        case C.NUMBER4: // After period
+          n = buffer[i];
+          if (n >= 0x30 && n < 0x40) { // 0-9
+            this.magnitude += this.position * (n - 0x30);
+            this.position /= 10;
+            this.state = C.NUMBER5;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NUMBER5: // * After digit (after period)
+          n = buffer[i];
+          if (n >= 0x30 && n < 0x40) { // 0-9
+            this.magnitude += this.position * (n - 0x30);
+            this.position /= 10;
+            continue;
+          }
+          if (n === 0x65 || n === 0x45) { // E/e
+            this.exponent = 0;
+            this.state = C.NUMBER6;
+            continue;
+          }
+          this.finish(i);
+          i--; // rewind
           continue;
-        }
-        this.charError(buffer, i);
-      case C.NUMBER2: // * After initial zero
-        switch (buffer[i]) {
-        case 0x2e: // .
-          this.position = 0.1; this.state = C.NUMBER4; continue;
-        case 0x65: case 0x45: // e/E
-          this.exponent = 0; this.state = C.NUMBER6; continue;
-        }
-        this.finish(i);
-        i--; // rewind to re-check this char
-        continue;
-      case C.NUMBER3: // * After digit (before period)
-        n = buffer[i];
-        switch (n) {
-        case 0x2e: // .
-          this.position = 0.1; this.state = C.NUMBER4; continue;
-        case 0x65: case 0x45: // e/E
-          this.exponent = 0; this.state = C.NUMBER6; continue;
-        }
-        if (n >= 0x30 && n < 0x40) { // 0-9
-          this.magnitude = this.magnitude * 10 + (n - 0x30);
+        case C.NUMBER6: // After E
+          n = buffer[i];
+          if (n === 0x2b || n === 0x2d) { // +/-
+            if (n === 0x2d) { this.negativeExponent = true; }
+            this.state = C.NUMBER7;
+            continue;
+          }
+          if (n >= 0x30 && n < 0x40) {
+            this.exponent = this.exponent * 10 + (n - 0x30);
+            this.state = C.NUMBER8;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NUMBER7: // After +/-
+          n = buffer[i];
+          if (n >= 0x30 && n < 0x40) { // 0-9
+            this.exponent = this.exponent * 10 + (n - 0x30);
+            this.state = C.NUMBER8;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NUMBER8: // * After digit (after +/-)
+          n = buffer[i];
+          if (n >= 0x30 && n < 0x40) { // 0-9
+            this.exponent = this.exponent * 10 + (n - 0x30);
+            continue;
+          }
+          this.finish(i);
+          i--;
           continue;
-        }
-        this.finish(i);
-        i--; // rewind to re-check
-        continue;
-      case C.NUMBER4: // After period
-        n = buffer[i];
-        if (n >= 0x30 && n < 0x40) { // 0-9
-          this.magnitude += this.position * (n - 0x30);
-          this.position /= 10;
-          this.state = C.NUMBER5;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NUMBER5: // * After digit (after period)
-        n = buffer[i];
-        if (n >= 0x30 && n < 0x40) { // 0-9
-          this.magnitude += this.position * (n - 0x30);
-          this.position /= 10;
-          continue;
-        }
-        if (n === 0x65 || n === 0x45) { // E/e
-          this.exponent = 0;
-          this.state = C.NUMBER6;
-          continue;
-        }
-        this.finish(i);
-        i--; // rewind
-        continue;
-      case C.NUMBER6: // After E
-        n = buffer[i];
-        if (n === 0x2b || n === 0x2d) { // +/-
-          if (n === 0x2d) { this.negativeExponent = true; }
-          this.state = C.NUMBER7;
-          continue;
-        }
-        if (n >= 0x30 && n < 0x40) {
-          this.exponent = this.exponent * 10 + (n - 0x30);
-          this.state = C.NUMBER8;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NUMBER7: // After +/-
-        n = buffer[i];
-        if (n >= 0x30 && n < 0x40) { // 0-9
-          this.exponent = this.exponent * 10 + (n - 0x30);
-          this.state = C.NUMBER8;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NUMBER8: // * After digit (after +/-)
-        n = buffer[i];
-        if (n >= 0x30 && n < 0x40) { // 0-9
-          this.exponent = this.exponent * 10 + (n - 0x30);
-          continue;
-        }
-        this.finish(i);
-        i--;
-        continue;
-      case C.TRUE1: // r
-        if (buffer[i] === 0x72) {
-          this.state = C.TRUE2;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.TRUE2: // u
-        if (buffer[i] === 0x75) {
-          this.state = C.TRUE3;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.TRUE3: // e
-        if (buffer[i] === 0x65) {
-          this.state = C.START;
-          if(this.validate && this.ready_for != 'v')
-            this.unexpected();
-          else if(this.callbacks.onBoolean(true) === false)
-            break;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.FALSE1: // a
-        if (buffer[i] === 0x61) {
-          this.state = C.FALSE2;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.FALSE2: // l
-        if (buffer[i] === 0x6c) {
-          this.state = C.FALSE3;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.FALSE3: // s
-        if (buffer[i] === 0x73) {
-          this.state = C.FALSE4;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.FALSE4: // e
-        if (buffer[i] === 0x65) {
-          if(this.validate && this.ready_for != 'v')
-            this.unexpected();
-          else {
+        case C.TRUE1: // r
+          if (buffer[i] === 0x72) {
+            this.state = C.TRUE2;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.TRUE2: // u
+          if (buffer[i] === 0x75) {
+            this.state = C.TRUE3;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.TRUE3: // e
+          if (buffer[i] === 0x65) {
             this.state = C.START;
-            if(this.callbacks.onBoolean(false) === false)
-              break;
-          }
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NULL1: // u
-        if (buffer[i] === 0x75) {
-          this.state = C.NULL2;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NULL2: // l
-        if (buffer[i] === 0x6c) {
-          this.state = C.NULL3;
-          continue;
-        }
-        this.charError(buffer, i);
-      case C.NULL3: // l
-        if (buffer[i] === 0x6c) {
-          if(this.validate && this.ready_for != 'v')
-            this.unexpected();
-          else {
-            this.state = C.START;
-            if(this.callbacks.onNull() === false)
+            if(this.validate && this.ready_for != 'v')
+              this.unexpected();
+            else if(this.callbacks.onBoolean(true) === false)
               break;
             continue;
           }
-        }
-        this.charError(buffer, i);
+          this.charError(buffer, i);
+        case C.FALSE1: // a
+          if (buffer[i] === 0x61) {
+            this.state = C.FALSE2;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.FALSE2: // l
+          if (buffer[i] === 0x6c) {
+            this.state = C.FALSE3;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.FALSE3: // s
+          if (buffer[i] === 0x73) {
+            this.state = C.FALSE4;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.FALSE4: // e
+          if (buffer[i] === 0x65) {
+            if(this.validate && this.ready_for != 'v')
+              this.unexpected();
+            else {
+              this.state = C.START;
+              if(this.callbacks.onBoolean(false) === false)
+                break;
+            }
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NULL1: // u
+          if (buffer[i] === 0x75) {
+            this.state = C.NULL2;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NULL2: // l
+          if (buffer[i] === 0x6c) {
+            this.state = C.NULL3;
+            continue;
+          }
+          this.charError(buffer, i);
+        case C.NULL3: // l
+          if (buffer[i] === 0x6c) {
+            if(this.validate && this.ready_for != 'v')
+              this.unexpected();
+            else {
+              this.state = C.START;
+              if(this.callbacks.onNull() === false)
+                break;
+              continue;
+            }
+          }
+          this.charError(buffer, i);
       }
+    }
+    // if we are still in the middle of a string, then decode that portion of the string
+    switch(this.state) {
+      case C.STRING1:
+      case C.STRING2:
+      case C.STRING3:
+      case C.STRING4:
+      case C.STRING5:
+      case C.STRING6:
+        this.raw_string += this.decoder.decode(buffer.slice(this.last_start, buffer.length), { stream: true });
+        this.last_start = 0;
     }
   };
 
   proto.finish = function(_i:number) {
     switch (this.state) {
-    case C.NUMBER2: // * After initial zero
-      if(this.callbacks.onNumber(0) === false)
-        break;
-      this.state = C.START;
-      this.magnitude = undefined;
-      this.negative = undefined;
-      break;
-    case C.NUMBER3: // * After digit (before period)
-      this.state = C.START;
-      if (this.negative) {
-        this.magnitude = -this.magnitude;
+      case C.NUMBER2: // * After initial zero
+        if(this.callbacks.onNumber(0) === false)
+          break;
+        this.state = C.START;
+        this.magnitude = undefined;
         this.negative = undefined;
-      }
-      if(this.callbacks.onNumber(this.magnitude) === false)
         break;
-      this.magnitude = undefined;
-      break;
-    case C.NUMBER5: // * After digit (after period)
-      this.state = C.START;
-      if (this.negative) {
-        this.magnitude = -this.magnitude;
-        this.negative = undefined;
-      }
-      if(this.callbacks.onNumber(this.negative ? -this.magnitude : this.magnitude) === false)
+      case C.NUMBER3: // * After digit (before period)
+        this.state = C.START;
+        if (this.negative) {
+          this.magnitude = -this.magnitude;
+          this.negative = undefined;
+        }
+        if(this.callbacks.onNumber(this.magnitude) === false)
+          break;
+        this.magnitude = undefined;
         break;
-      this.magnitude = undefined;
-      this.position = undefined;
-      break;
-    case C.NUMBER8: // * After digit (after +/-)
-      if (this.negativeExponent) {
-        this.exponent = -this.exponent;
-        this.negativeExponent = undefined;
-      }
-      this.magnitude *= Math.pow(10, this.exponent);
-      this.exponent = undefined;
-      if (this.negative) {
-        this.magnitude = -this.magnitude;
-        this.negative = undefined;
-      }
-      this.state = C.START;
-      if(this.callbacks.onNumber(this.magnitude) === false)
+      case C.NUMBER5: // * After digit (after period)
+        this.state = C.START;
+        if (this.negative) {
+          this.magnitude = -this.magnitude;
+          this.negative = undefined;
+        }
+        if(this.callbacks.onNumber(this.negative ? -this.magnitude : this.magnitude) === false)
+          break;
+        this.magnitude = undefined;
+        this.position = undefined;
         break;
-      this.magnitude = undefined;
-      break;
+      case C.NUMBER8: // * After digit (after +/-)
+        if (this.negativeExponent) {
+          this.exponent = -this.exponent;
+          this.negativeExponent = undefined;
+        }
+        this.magnitude *= Math.pow(10, this.exponent);
+        this.exponent = undefined;
+        if (this.negative) {
+          this.magnitude = -this.magnitude;
+          this.negative = undefined;
+        }
+        this.state = C.START;
+        if(this.callbacks.onNumber(this.magnitude) === false)
+          break;
+        this.magnitude = undefined;
+        break;
     }
 
     if(this.state !== C.START)
